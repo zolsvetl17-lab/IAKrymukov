@@ -1,138 +1,146 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
-import requests
 import json
+import random
 import os
 
-class GitHubUserFinder:
+class RandomQuoteGenerator:
     def __init__(self, root):
         self.root = root
-        self.root.title("GitHub User Finder")
-        self.root.geometry("600x500")
+        self.root.title("Random Quote Generator")
+        self.root.geometry("700x600")
 
-        # Файл для сохранения избранных пользователей
-        self.favorites_file = "favorites.json"
-        self.load_favorites()
+        # Предопределённые цитаты
+        self.quotes = [
+            {"text": "Жизнь — это то, что происходит с тобой, пока ты строишь другие планы.",
+             "author": "Джон Леннон", "topic": "Философия"},
+            {"text": "Успех — это способность идти от неудачи к неудаче, не теряя энтузиазма.",
+             "author": "Уинстон Черчилль", "topic": "Мотивация"},
+            {"text": "Знание — сила.",
+             "author": "Фрэнсис Бэкон", "topic": "Наука"},
+            {"text": "Будь изменением, которое ты хочешь видеть в мире.",
+             "author": "Махатма Ганди", "topic": "Саморазвитие"}
+        ]
+
+        # Файл для сохранения истории
+        self.history_file = "quote_history.json"
+        self.load_history()
 
         self.setup_ui()
 
     def setup_ui(self):
-        # Поле ввода для поиска
-        search_frame = ttk.Frame(self.root)
-        search_frame.pack(pady=10, padx=20, fill="x")
+        # Кнопка генерации цитаты
+        generate_frame = ttk.Frame(self.root)
+        generate_frame.pack(pady=10, padx=20, fill="x")
 
-        ttk.Label(search_frame, text="Поиск пользователя GitHub:").pack(side="left")
-        self.search_entry = ttk.Entry(search_frame, width=40)
-        self.search_entry.pack(side="left", padx=5)
-        self.search_entry.bind("<Return>", lambda event: self.search_users())
+        generate_btn = ttk.Button(generate_frame, text="Сгенерировать цитату",
+                               command=self.generate_quote)
+        generate_btn.pack()
 
-        search_button = ttk.Button(search_frame, text="Найти", command=self.search_users)
-        search_button.pack(side="left")
+        # Отображение текущей цитаты
+        quote_frame = ttk.LabelFrame(self.root, text="Случайная цитата")
+        quote_frame.pack(pady=10, padx=20, fill="both", expand=True)
 
-        # Список результатов поиска
-        results_frame = ttk.LabelFrame(self.root, text="Результаты поиска")
-        results_frame.pack(pady=10, padx=20, fill="both", expand=True)
+        self.quote_text = tk.Text(quote_frame, height=5, wrap="word")
+        self.quote_text.pack(fill="both", expand=True, padx=10, pady=10)
 
-        self.results_tree = ttk.Treeview(results_frame, columns=("Login", "Name", "URL"), show="headings", height=10)
-        self.results_tree.heading("Login", text="Логин")
-        self.results_tree.heading("Name", text="Имя")
-        self.results_tree.heading("URL", text="Профиль")
-        self.results_tree.column("Login", width=150)
-        self.results_tree.column("Name", width=200)
-        self.results_tree.column("URL", width=250)
-        self.results_tree.pack(fill="both", expand=True, padx=10, pady=10)
+        # Фильтры
+        filter_frame = ttk.LabelFrame(self.root, text="Фильтры")
+        filter_frame.pack(pady=10, padx=20, fill="x")
 
-        # Кнопка добавления в избранное
-        add_favorite_button = ttk.Button(results_frame, text="Добавить в избранное",
-                                         command=self.add_to_favorites)
-        add_favorite_button.pack(pady=5)
+        ttk.Label(filter_frame, text="Автор:").grid(row=0, column=0, padx=5, pady=5)
+        self.author_filter = ttk.Entry(filter_frame, width=20)
+        self.author_filter.grid(row=0, column=1, padx=5, pady=5)
 
-        # Список избранных пользователей
-        favorites_frame = ttk.LabelFrame(self.root, text="Избранное")
-        favorites_frame.pack(pady=10, padx=20, fill="both", expand=True)
+        ttk.Label(filter_frame, text="Тема:").grid(row=0, column=2, padx=5, pady=5)
+        self.topic_filter = ttk.Entry(filter_frame, width=20)
+        self.topic_filter.grid(row=0, column=3, padx=5, pady=5)
 
-        self.favorites_tree = ttk.Treeview(favorites_frame, columns=("Login", "Name", "URL"),
-                                          show="headings", height=5)
-        self.favorites_tree.heading("Login", text="Логин")
-        self.favorites_tree.heading("Name", text="Имя")
-        self.favorites_tree.heading("URL", text="Профиль")
-        self.favorites_tree.column("Login", width=150)
-        self.favorites_tree.column("Name", width=200)
-        self.favorites_tree.column("URL", width=250)
-        self.favorites_tree.pack(fill="both", expand=True, padx=10, pady=10)
+        filter_btn = ttk.Button(filter_frame, text="Применить фильтр",
+                           command=self.apply_filter)
+        filter_btn.grid(row=0, column=4, padx=5, pady=5)
 
-        # Обновление списка избранного
-        self.update_favorites_list()
+        reset_btn = ttk.Button(filter_frame, text="Сбросить фильтры",
+                         command=self.reset_filter)
+        reset_btn.grid(row=0, column=5, padx=5, pady=5)
 
-    def search_users(self):
-        query = self.search_entry.get().strip()
-        if not query:
-            messagebox.showerror("Ошибка", "Поле поиска не должно быть пустым!")
+        # История цитат
+        history_frame = ttk.LabelFrame(self.root, text="История цитат")
+        history_frame.pack(pady=10, padx=20, fill="both", expand=True)
+
+        columns = ("Текст", "Автор", "Тема")
+        self.history_tree = ttk.Treeview(history_frame, columns=columns,
+                                  show="headings", height=8)
+
+        for col in columns:
+            self.history_tree.heading(col, text=col)
+            self.history_tree.column(col, width=150)
+
+        self.history_tree.pack(fill="both", expand=True, padx=10, pady=10)
+
+        self.update_history_list()
+
+    def generate_quote(self):
+        if not self.quotes:
+            messagebox.showerror("Ошибка", "Нет доступных цитат!")
             return
 
-        try:
-            response = requests.get(f"https://api.github.com/search/users?q={query}")
-            if response.status_code == 200:
-                data = response.json()
-                self.display_search_results(data["items"])
-            else:
-                messagebox.showerror("Ошибка", f"Ошибка API: {response.status_code}")
-        except Exception as e:
-            messagebox.showerror("Ошибка", f"Произошла ошибка: {str(e)}")
+        quote = random.choice(self.quotes)
+        self.current_quote = quote
 
-    def display_search_results(self, users):
-        for item in self.results_tree.get_children():
-            self.results_tree.delete(item)
+        # Очистка и отображение новой цитаты
+        self.quote_text.delete(1.0, tk.END)
+        display_text = f"{quote['text']}\n\n— {quote['author']} ({quote['topic']})"
+        self.quote_text.insert(1.0, display_text)
 
-        for user in users[:10]:  # Показываем первые 10 результатов
-            self.results_tree.insert("", "end", values=(
-                user["login"],
-                user.get("name", "Не указано"),
-                user["html_url"]
+        # Добавление в историю
+        if quote not in self.history:
+            self.history.append(quote)
+            self.save_history()
+            self.update_history_list()
+
+    def load_history(self):
+        if os.path.exists(self.history_file):
+            with open(self.history_file, "r", encoding="utf-8") as f:
+                self.history = json.load(f)
+        else:
+            self.history = []
+
+    def save_history(self):
+        with open(self.history_file, "w", encoding="utf-8") as f:
+            json.dump(self.history, f, ensure_ascii=False, indent=2)
+
+    def update_history_list(self):
+        for item in self.history_tree.get_children():
+            self.history_tree.delete(item)
+
+        filtered_history = self.apply_filters_to_history()
+        for quote in filtered_history:
+            self.history_tree.insert("", "end", values=(
+                quote["text"], quote["author"], quote["topic"]
             ))
 
-    def add_to_favorites(self):
-        selected = self.results_tree.selection()
-        if not selected:
-            messagebox.showwarning("Предупреждение", "Выберите пользователя из списка!")
-            return
+    def apply_filter(self):
+        self.update_history_list()
 
-        values = self.results_tree.item(selected[0])["values"]
-        user_data = {
-            "login": values[0],
-            "name": values[1],
-            "url": values[2]
-        }
+    def reset_filter(self):
+        self.author_filter.delete(0, tk.END)
+        self.topic_filter.delete(0, tk.END)
+        self.update_history_list()
 
-        if user_data not in self.favorites:
-            self.favorites.append(user_data)
-            self.save_favorites()
-            self.update_favorites_list()
-            messagebox.showinfo("Успех", "Пользователь добавлен в избранное!")
-        else:
-            messagebox.showinfo("Информация", "Этот пользователь уже в избранном!")
+    def apply_filters_to_history(self):
+        author_filter = self.author_filter.get().strip().lower()
+        topic_filter = self.topic_filter.get().strip().lower()
 
-    def load_favorites(self):
-        if os.path.exists(self.favorites_file):
-            with open(self.favorites_file, "r", encoding="utf-8") as f:
-                self.favorites = json.load(f)
-        else:
-            self.favorites = []
+        filtered = self.history
+        if author_filter:
+            filtered = [q for q in filtered if author_filter in q["author"].lower()]
+        if topic_filter:
+            filtered = [q for q in filtered if topic_filter in q["topic"].lower()]
 
-    def save_favorites(self):
-        with open(self.favorites_file, "w", encoding="utf-8") as f:
-            json.dump(self.favorites, f, ensure_ascii=False, indent=2)
-
-    def update_favorites_list(self):
-        for item in self.favorites_tree.get_children():
-            self.favorites_tree.delete(item)
-
-        for user in self.favorites:
-            self.favorites_tree.insert("", "end", values=(
-                user["login"], user["name"], user["url"]
-            ))
+        return filtered
 
 if __name__ == "__main__":
     root = tk.Tk()
-    app = GitHubUserFinder(root)
+    app = RandomQuoteGenerator(root)
     root.mainloop()
